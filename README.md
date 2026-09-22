@@ -1,4 +1,4 @@
-# EasyProxy Worker V0.8
+# EasyProxy Worker V0.9
 
 Cloudflare Workers adaptation of the EasyProxy HTTP contract.
 
@@ -21,7 +21,7 @@ npx wrangler secret put PROXY_SECRET
 
 Do not put the secret in `vars`.
 
-## V0.8 changes
+## V0.9 changes
 
 - Added `/extractor/video.m3u8`
 - Added `/extractor/video.mp4`
@@ -38,14 +38,14 @@ Do not put the secret in `vars`.
 - No browser automation or Turnstile solving
 - No server-side DRM decryption
 
-If an upstream requires a browser challenge or blocks Cloudflare edge traffic, V0.8 returns a structured error instead of generating a bogus signed URL.
+If an upstream requires a browser challenge or blocks Cloudflare edge traffic, V0.9 returns a structured error instead of generating a bogus signed URL.
 
 ## Cloudflare note
 
 Workers execute at Cloudflare edge locations and can make outbound HTTP(S) subrequests with `fetch()`. That is sufficient for ordinary origin fetching; WARP is not required merely to provide Internet egress.
 
 
-## V0.8 changes
+## V0.9 changes
 
 - Adds dedicated `vavoo` and `dlhd` extractor modules.
 - Generic extraction no longer scans arbitrary HTML for pseudo-URLs.
@@ -57,3 +57,12 @@ Workers execute at Cloudflare edge locations and can make outbound HTTP(S) subre
 ### Important Vavoo limitation
 
 Vavoo currently uses an authentication/signature flow that changes over time. The Worker does not invent or hard-code a guessed signature. If a Vavoo page/API does not expose an explicit `.m3u8`/`.mpd`, the endpoint returns a diagnostic error instead of returning a bogus proxy URL.
+
+
+## V0.9 changes
+
+- `/proxy/hls/manifest.m3u8` and `/proxy/manifest.m3u8` now detect specialized HTML inputs.
+- DLHD `watch.php?id=...` is resolved before HLS rewriting.
+- DLHD resolver follows explicit landing redirects, player buttons, iframe, channel key, authentication parameters, server lookup, and final `mono.m3u8`.
+- The resolver does not execute arbitrary JavaScript and does not use WARP, SOCKS, FlareSolverr, or a browser.
+- `@cloudflare/workers-types` is pinned to `^5.20260922.0`.

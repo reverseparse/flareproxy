@@ -8,7 +8,7 @@ import { boolParam, getTarget, htmlInfo } from "./compat";
 import type { Env } from "./types";
 import { collectProxyHeaders, validateUpstreamUrl } from "./utils/security";
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 
 function json(value: unknown, status = 200, extra: HeadersInit = {}): Response {
   return new Response(JSON.stringify(value, null, 2), {
@@ -46,7 +46,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/api/info") return json({ ok:true, service:"easyproxy-worker", version:VERSION, endpoints:["/proxy/manifest.m3u8","/proxy/hls/manifest.m3u8","/proxy/mpd/manifest.m3u8","/proxy/stream","/extractor/video","/extractor/video.m3u8","/extractor/video.mp4","/extractor/video.ts","/extractor/video.mkv","/extractor/video.webm","/playlist","/proxy/ip","/generate_urls","/license","/key"], extractors:listExtractors(), unsupported:["/record","/recordings","/api/recordings/*","/proxy/mpd/segment.mp4"] });
   if (path === "/info") return new Response(htmlInfo(VERSION), { headers:{"content-type":"text/html; charset=utf-8"} });
   if (path === "/builder") return new Response("EasyProxy Worker playlist builder API is available at /generate_urls and /playlist.", {headers:{"content-type":"text/plain; charset=utf-8"}});
-  if (path === "/") return new Response("EasyProxy Worker V0.8\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
+  if (path === "/") return new Response("EasyProxy Worker V0.9\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
 
   try {
     if (path === "/proxy/ip") {
@@ -56,14 +56,37 @@ export async function handle(request: Request, env: Env): Promise<Response> {
 
     if (path === "/proxy/manifest.m3u8" || path === "/proxy/hls/manifest.m3u8" || path === "/proxy/hls") {
       requireSecret(env); const raw = getTarget(url); if (!raw) return error("Missing url");
-      const target = validateUpstreamUrl(raw, env.ALLOWED_HOSTS ?? ""); const headers = queryHeaders(request,url);
-      const upstream = await fetchUpstream(request,target.toString(),env,headers); if (!upstream.ok) return passThrough(upstream);
+      let target = validateUpstreamUrl(raw, env.ALLOWED_HOSTS ?? ""); const headers = queryHeaders(request,url);
+      let upstream = await fetchUpstream(request,target.toString(),env,headers);
+      let resolvedHeaders = headers;
+
+      // EasyProxy-compatible behavior: a non-manifest page such as
+      // dlhd.dad/watch.php?id=850 is an extractor input, not an HLS manifest.
+      // Resolve known specialized hosts before passing content to the HLS rewriter.
+      const contentType = (upstream.headers.get("content-type") || "").toLowerCase();
+      const looksManifest = contentType.includes("mpegurl") || contentType.includes("vnd.apple.mpegurl") ||
+        contentType.includes("dash+xml");
+      if (upstream.ok && !looksManifest) {
+        const sample = await upstream.clone().text();
+        const isHls = /^\s*#EXTM3U(?:\s|$)/i.test(sample);
+        const isMpd = /<MPD[\s>]/i.test(sample);
+        if (!isHls && !isMpd) {
+          const host = target.hostname.toLowerCase();
+          if (/(?:daddylive|dlhd|dlive|vavoo)/i.test(host)) {
+            const result = await extractVideo(target.toString(), {request, env, headers}, null);
+            target = validateUpstreamUrl(result.destination_url, env.ALLOWED_HOSTS ?? "");
+            resolvedHeaders = result.request_headers || headers;
+            upstream = await fetchUpstream(request,target.toString(),env,resolvedHeaders);
+          }
+        }
+      }
+      if (!upstream.ok) return passThrough(upstream);
       const text = await upstream.text(); const isMpd = /<MPD[\s>]/i.test(text);
       if (isMpd) {
-        const body = await rewriteMpd(text,target.toString(),url.origin,env.PROXY_SECRET,headers);
+        const body = await rewriteMpd(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
         return new Response(body,{headers:{"content-type":"application/dash+xml","cache-control":"no-store","access-control-allow-origin":"*"}});
       }
-      const body = await rewriteHls(text,target.toString(),url.origin,env.PROXY_SECRET,headers);
+      const body = await rewriteHls(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
       return new Response(body,{headers:{"content-type":"application/vnd.apple.mpegurl","cache-control":"no-store","access-control-allow-origin":"*"}});
     }
 
