@@ -58,7 +58,6 @@ Workers execute at Cloudflare edge locations and can make outbound HTTP(S) subre
 
 Vavoo currently uses an authentication/signature flow that changes over time. The Worker does not invent or hard-code a guessed signature. If a Vavoo page/API does not expose an explicit `.m3u8`/`.mpd`, the endpoint returns a diagnostic error instead of returning a bogus proxy URL.
 
-
 ## V0.9 changes
 
 - `/proxy/hls/manifest.m3u8` and `/proxy/manifest.m3u8` now detect specialized HTML inputs.
