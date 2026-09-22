@@ -1,41 +1,45 @@
-# EasyProxy Worker V0.6
+# EasyProxy Worker V0.7
 
-Cloudflare Workers implementation of the portable EasyProxy HTTP contract.
-
-## Compatibility
-
-The Worker intentionally preserves the public EasyProxy endpoint family:
-
-- `/proxy/manifest.m3u8`
-- `/proxy/hls/manifest.m3u8`
-- `/proxy/mpd/manifest.m3u8`
-- `/proxy/stream`
-- `/extractor/video`
-- `/playlist`
-- `/proxy/ip`
-- `/generate_urls` (POST)
-- `/license` and `/key`
-- `/api/info`, `/info`, `/builder`
-- `/record`, `/recordings`, `/api/recordings/*` return an explicit 501 because FFmpeg/filesystem DVR is not portable to this build.
-
-### Parameter compatibility
-
-`url` and `d` are aliases. Custom upstream headers use `h_<header>`, matching EasyProxy. `redirect_stream=true` is supported by `/extractor/video` and returns a 302 to a signed Worker proxy URL.
-
-## Portable scope
-
-Implemented with Workers Fetch/Streams: HLS rewriting, DASH MPD rewriting, generic HTTP proxying, stateless signed routes, generic direct URL/HTML extraction, playlist proxying.
-
-Not included: FFmpeg recording, WARP/WireGuard/SOCKS subprocesses, browser/FlareSolverr automation, server-side CENC decryption.
+Cloudflare Workers adaptation of the EasyProxy HTTP contract.
 
 ## Deploy
 
-Set a strong `PROXY_SECRET` and optionally `ALLOWED_HOSTS` as a comma-separated hostname allowlist.
+The Free plan configuration deliberately contains **no `limits` block**.
 
 ```bash
 npm install
-npx wrangler secret put PROXY_SECRET
-npm run check
-npm run test
 npx wrangler deploy
 ```
+
+The Worker is configured for `workers.dev` with the name `flareproxy`.
+
+Keep the existing secret:
+
+```bash
+npx wrangler secret put PROXY_SECRET
+```
+
+Do not put the secret in `vars`.
+
+## V0.7 changes
+
+- Added `/extractor/video.m3u8`
+- Added `/extractor/video.mp4`
+- Added `/extractor/video.ts`
+- Added `/extractor/video.mkv`
+- Added `/extractor/video.webm`
+- `/extractor/video` remains compatible with `url` and `d`
+- `host`, `redirect_stream` and `h_*` query parameters remain supported
+- Generic extractor no longer treats an HTML document as an HLS URL
+- Added a portable VixSrc extractor using normal Worker `fetch()` and API/playlist parsing
+- No FlareSolverr
+- No WARP
+- No WireGuard/SOCKS
+- No browser automation or Turnstile solving
+- No server-side DRM decryption
+
+If an upstream requires a browser challenge or blocks Cloudflare edge traffic, V0.7 returns a structured error instead of generating a bogus signed URL.
+
+## Cloudflare note
+
+Workers execute at Cloudflare edge locations and can make outbound HTTP(S) subrequests with `fetch()`. That is sufficient for ordinary origin fetching; WARP is not required merely to provide Internet egress.

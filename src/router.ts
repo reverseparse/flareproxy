@@ -8,7 +8,7 @@ import { boolParam, getTarget, htmlInfo } from "./compat";
 import type { Env } from "./types";
 import { collectProxyHeaders, validateUpstreamUrl } from "./utils/security";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 
 function json(value: unknown, status = 200, extra: HeadersInit = {}): Response {
   return new Response(JSON.stringify(value, null, 2), {
@@ -43,10 +43,10 @@ export async function handle(request: Request, env: Env): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { headers: { "access-control-allow-origin":"*", "access-control-allow-methods":"GET,HEAD,POST,DELETE,OPTIONS", "access-control-allow-headers":"Content-Type, Authorization, Range" }});
 
   if (path === "/api/health") return json({ ok:true, service:"easyproxy-worker", version:VERSION, runtime:"cloudflare-workers" });
-  if (path === "/api/info") return json({ ok:true, service:"easyproxy-worker", version:VERSION, endpoints:["/proxy/manifest.m3u8","/proxy/hls/manifest.m3u8","/proxy/mpd/manifest.m3u8","/proxy/stream","/extractor/video","/playlist","/proxy/ip","/generate_urls","/license","/key"], extractors:listExtractors(), unsupported:["/record","/recordings","/api/recordings/*","/proxy/mpd/segment.mp4"] });
+  if (path === "/api/info") return json({ ok:true, service:"easyproxy-worker", version:VERSION, endpoints:["/proxy/manifest.m3u8","/proxy/hls/manifest.m3u8","/proxy/mpd/manifest.m3u8","/proxy/stream","/extractor/video","/extractor/video.m3u8","/extractor/video.mp4","/extractor/video.ts","/extractor/video.mkv","/extractor/video.webm","/playlist","/proxy/ip","/generate_urls","/license","/key"], extractors:listExtractors(), unsupported:["/record","/recordings","/api/recordings/*","/proxy/mpd/segment.mp4"] });
   if (path === "/info") return new Response(htmlInfo(VERSION), { headers:{"content-type":"text/html; charset=utf-8"} });
   if (path === "/builder") return new Response("EasyProxy Worker playlist builder API is available at /generate_urls and /playlist.", {headers:{"content-type":"text/plain; charset=utf-8"}});
-  if (path === "/") return new Response("EasyProxy Worker V0.6\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
+  if (path === "/") return new Response("EasyProxy Worker V0.7\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
 
   try {
     if (path === "/proxy/ip") {
@@ -91,15 +91,48 @@ export async function handle(request: Request, env: Env): Promise<Response> {
       return passThrough(await fetchUpstream(request,target,env,state.h));
     }
 
-    if (path === "/extractor/video") {
-      const raw=getTarget(url); if(!raw)return json({ok:false, error:"Missing url or d", supported_hosts:listExtractors()},400);
-      const result=await extractVideo(raw,{request,env,headers:queryHeaders(request,url)},url.searchParams.get("host"));
-      if(boolParam(url,"redirect_stream")) {
-        requireSecret(env); const token=await sealState({u:result.destination_url,h:result.request_headers,m:result.media_type,e:Date.now()+15*60_000},env.PROXY_SECRET);
-        const route=result.media_type==="dash"?`/proxy/d/${encodeURIComponent(token)}`:`/proxy/s/${encodeURIComponent(token)}`;
+    const extractorPaths = new Set([
+      "/extractor/video",
+      "/extractor/video.m3u8",
+      "/extractor/video.mp4",
+      "/extractor/video.ts",
+      "/extractor/video.mkv",
+      "/extractor/video.webm"
+    ]);
+
+    if (extractorPaths.has(path)) {
+      const raw=getTarget(url);
+      if(!raw)return json({ok:false, error:"Missing url or d", supported_hosts:listExtractors()},400);
+
+      const forcedHost=url.searchParams.get("host");
+      const result=await extractVideo(raw,{request,env,headers:queryHeaders(request,url)},forcedHost);
+
+      // Extension aliases are compatibility aliases, not a request to lie about
+      // the origin format. They always return a proxied/redirected destination.
+      const wantsRedirect = boolParam(url,"redirect_stream") || path !== "/extractor/video";
+      if(wantsRedirect) {
+        requireSecret(env);
+        const mediaType = path.endsWith(".m3u8") ? "hls" :
+          path.endsWith(".mp4") || path.endsWith(".ts") || path.endsWith(".mkv") || path.endsWith(".webm") ? "stream" :
+          result.media_type;
+        const token=await sealState({
+          u:result.destination_url,
+          h:result.request_headers,
+          m:mediaType,
+          e:Date.now()+15*60_000
+        },env.PROXY_SECRET);
+        const route=mediaType==="dash"?`/proxy/d/${encodeURIComponent(token)}`:`/proxy/s/${encodeURIComponent(token)}`;
         return Response.redirect(new URL(route,url.origin).toString(),302);
       }
-      return json({ destination_url:result.destination_url, request_headers:result.request_headers||{}, source_url:result.source_url, extractor:result.extractor, media_type:result.media_type });
+
+      return json({
+        ok:true,
+        destination_url:result.destination_url,
+        request_headers:result.request_headers||{},
+        source_url:result.source_url,
+        extractor:result.extractor,
+        media_type:result.media_type
+      });
     }
 
     if (path === "/playlist") {
@@ -128,6 +161,10 @@ export async function handle(request: Request, env: Env): Promise<Response> {
   } catch (cause) {
     const message=cause instanceof Error?cause.message:"Internal error";
     const status=/not allowed|allowlisted/i.test(message)?403:/missing|invalid parameter/i.test(message)?400:502;
-    return error(message,status);
+    return json({
+      ok:false,
+      error:message,
+      code: /VixSrc/i.test(message) ? "VIXSRC_UNAVAILABLE" : "UPSTREAM_ERROR"
+    }, status);
   }
 }
