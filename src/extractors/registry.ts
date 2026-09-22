@@ -1,9 +1,16 @@
 import { validateUpstreamUrl } from "../utils/security";
 import { genericExtractor } from "./generic";
 import { vixsrcExtractor } from "./vixsrc";
+import { vavooExtractor } from "./vavoo";
+import { dlhdExtractor } from "./dlhd";
 import type { ExtractContext, ExtractResult, Extractor } from "./types";
 
-const extractors: Extractor[] = [vixsrcExtractor, genericExtractor];
+const extractors: Extractor[] = [
+  vixsrcExtractor,
+  vavooExtractor,
+  dlhdExtractor,
+  genericExtractor
+];
 
 export async function extractVideo(
   raw: string,
@@ -26,8 +33,6 @@ export async function extractVideo(
       if (result?.destination_url) return result;
     } catch (error) {
       lastError = error;
-      // A specialized extractor can fail because the site changed or blocked
-      // the edge request; do not silently convert its HTML into a stream URL.
       if (forcedHost && forcedHost.toLowerCase() !== "generic") throw error;
     }
   }

@@ -1,4 +1,4 @@
-# EasyProxy Worker V0.7
+# EasyProxy Worker V0.8
 
 Cloudflare Workers adaptation of the EasyProxy HTTP contract.
 
@@ -21,7 +21,7 @@ npx wrangler secret put PROXY_SECRET
 
 Do not put the secret in `vars`.
 
-## V0.7 changes
+## V0.8 changes
 
 - Added `/extractor/video.m3u8`
 - Added `/extractor/video.mp4`
@@ -38,8 +38,22 @@ Do not put the secret in `vars`.
 - No browser automation or Turnstile solving
 - No server-side DRM decryption
 
-If an upstream requires a browser challenge or blocks Cloudflare edge traffic, V0.7 returns a structured error instead of generating a bogus signed URL.
+If an upstream requires a browser challenge or blocks Cloudflare edge traffic, V0.8 returns a structured error instead of generating a bogus signed URL.
 
 ## Cloudflare note
 
 Workers execute at Cloudflare edge locations and can make outbound HTTP(S) subrequests with `fetch()`. That is sufficient for ordinary origin fetching; WARP is not required merely to provide Internet egress.
+
+
+## V0.8 changes
+
+- Adds dedicated `vavoo` and `dlhd` extractor modules.
+- Generic extraction no longer scans arbitrary HTML for pseudo-URLs.
+- HTML such as `<!doctype html>`, `<script>`, `watch.php`, and page markup can no longer be signed into `/proxy/s/...`.
+- Vavoo/DLHD extractors accept only explicit HLS/DASH URLs exposed by the upstream response.
+- No FlareSolverr, WARP, browser automation, or challenge bypass is added.
+- The existing `PROXY_SECRET`, `workers.dev` deployment, and EasyProxy endpoint names remain unchanged.
+
+### Important Vavoo limitation
+
+Vavoo currently uses an authentication/signature flow that changes over time. The Worker does not invent or hard-code a guessed signature. If a Vavoo page/API does not expose an explicit `.m3u8`/`.mpd`, the endpoint returns a diagnostic error instead of returning a bogus proxy URL.
