@@ -5,7 +5,6 @@
   "compatibility_date": "2026-09-22",
   "workers_dev": true,
   "limits": {
-    "cpu_ms": 10000,
     "subrequests": 50
   },
   "vars": {
