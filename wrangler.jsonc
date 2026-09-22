@@ -1,12 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "easyproxy-worker",
+  "name": "flareproxy",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-22",
   "workers_dev": true,
-  "limits": {
-    "subrequests": 50
-  },
   "vars": {
     "ALLOWED_HOSTS": ""
   }
