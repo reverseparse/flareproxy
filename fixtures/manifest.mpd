@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<MPD type="static" mediaPresentationDuration="PT30S">
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <Representation id="v1" bandwidth="1000000">
+        <BaseURL>https://cdn.example.com/video/</BaseURL>
+        <SegmentTemplate
+          timescale="1"
+          duration="6"
+          startNumber="1"
+          media="seg-$Number$.m4s"
+          initialization="init-$RepresentationID$.mp4"/>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>

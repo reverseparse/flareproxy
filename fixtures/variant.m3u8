@@ -1,0 +1,10 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:6
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="keys/key.bin"
+#EXTINF:6,
+seg-1.ts
+#EXTINF:6,
+https://cdn.example.com/seg-2.ts
+#EXT-X-PART:DURATION=0.333,URI="part-3.0.ts"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part-4.0.ts"
