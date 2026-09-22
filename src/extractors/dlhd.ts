@@ -185,6 +185,27 @@ export const dlhdExtractor: Extractor = {
 
     const baseUrl = new URL(initial.response.url || current).origin + "/";
     let playerLinks = findPlayerLinks(initial.text, baseUrl);
+    let iframeUrl: string | null = null;
+
+    // Current DLHD watch pages also expose the embed directly as:
+    // /stream/stream-<channel>.php (and equivalent /cast, /watch, /plus,
+    // /casting, /player folders). Prefer the explicit embed when present.
+    const embedRe = /<iframe[^>]+src=["']([^"']*\/stream\/stream-\\d+\\.php[^"']*)["']/i;
+    const embedMatch = initial.text.match(embedRe);
+    if (embedMatch?.[1]) {
+      try {
+        iframeUrl = new URL(embedMatch[1].replaceAll("\\/", "/"), initial.response.url || current).toString();
+      } catch {}
+    }
+
+    // If no iframe was embedded, construct the documented stream player URL
+    // from the channel id. This is an explicit URL convention, not arbitrary
+    // HTML/JS execution.
+    if (!iframeUrl && channelId) {
+      try {
+        iframeUrl = new URL(`/stream/stream-${channelId}.php`, initial.response.url || current).toString();
+      } catch {}
+    }
 
     // Some current landing pages redirect to /lander?id=... before exposing
     // the Player buttons.
@@ -198,7 +219,7 @@ export const dlhdExtractor: Extractor = {
     }
 
     // If an iframe is already present, use it directly.
-    let iframeUrl = findIframe(initial.text, initial.response.url || current);
+    if (!iframeUrl) iframeUrl = findIframe(initial.text, initial.response.url || current);
 
     let lastError = "";
     for (const playerUrl of playerLinks.slice(0, 5)) {

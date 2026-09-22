@@ -8,7 +8,7 @@ import { boolParam, getTarget, htmlInfo } from "./compat";
 import type { Env } from "./types";
 import { collectProxyHeaders, validateUpstreamUrl } from "./utils/security";
 
-const VERSION = "0.9.0";
+const VERSION = "1.1.0";
 
 function json(value: unknown, status = 200, extra: HeadersInit = {}): Response {
   return new Response(JSON.stringify(value, null, 2), {
@@ -46,7 +46,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/api/info") return json({ ok:true, service:"easyproxy-worker", version:VERSION, endpoints:["/proxy/manifest.m3u8","/proxy/hls/manifest.m3u8","/proxy/mpd/manifest.m3u8","/proxy/stream","/extractor/video","/extractor/video.m3u8","/extractor/video.mp4","/extractor/video.ts","/extractor/video.mkv","/extractor/video.webm","/playlist","/proxy/ip","/generate_urls","/license","/key"], extractors:listExtractors(), unsupported:["/record","/recordings","/api/recordings/*","/proxy/mpd/segment.mp4"] });
   if (path === "/info") return new Response(htmlInfo(VERSION), { headers:{"content-type":"text/html; charset=utf-8"} });
   if (path === "/builder") return new Response("EasyProxy Worker playlist builder API is available at /generate_urls and /playlist.", {headers:{"content-type":"text/plain; charset=utf-8"}});
-  if (path === "/") return new Response("EasyProxy Worker V0.9\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
+  if (path === "/") return new Response("EasyProxy Worker V1.0\nCompatible API surface for EasyProxy clients.\n", {headers:{"content-type":"text/plain; charset=utf-8"}});
 
   try {
     if (path === "/proxy/ip") {
@@ -80,8 +80,35 @@ export async function handle(request: Request, env: Env): Promise<Response> {
           }
         }
       }
-      if (!upstream.ok) return passThrough(upstream);
-      const text = await upstream.text(); const isMpd = /<MPD[\s>]/i.test(text);
+      if (!upstream.ok) {
+        const upstreamStatus = upstream.status;
+        const upstreamType = (upstream.headers.get("content-type") || "").toLowerCase();
+        // Do not expose a successful HTTP 200 HTML error page as an HLS
+        // manifest. This is especially important for CDN/DNS errors such
+        // as Cloudflare 1016 returned by a provider upstream.
+        if (upstreamStatus === 200 && upstreamType.includes("text/html")) {
+          return json({
+            ok: false,
+            error: "Upstream returned HTML instead of an HLS/DASH manifest",
+            code: "UPSTREAM_NOT_MEDIA",
+            upstream_url: target.toString()
+          }, 502);
+        }
+        return passThrough(upstream);
+      }
+
+      const text = await upstream.text();
+      const isHls = /^\s*#EXTM3U(?:\s|$)/i.test(text);
+      const isMpd = /<MPD[\s>]/i.test(text);
+      if (!isHls && !isMpd) {
+        return json({
+          ok: false,
+          error: "Upstream response is not an HLS or DASH manifest",
+          code: "UPSTREAM_NOT_MANIFEST",
+          upstream_url: target.toString(),
+          content_type: upstream.headers.get("content-type") || null
+        }, 502);
+      }
       if (isMpd) {
         const body = await rewriteMpd(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
         return new Response(body,{headers:{"content-type":"application/dash+xml","cache-control":"no-store","access-control-allow-origin":"*"}});
