@@ -1,5 +1,6 @@
 import { validateUpstreamUrl } from "../utils/security";
 import { genericExtractor } from "./generic";
+import { freeshotExtractor } from "./freeshot";
 import { vixsrcExtractor } from "./vixsrc";
 import { vavooExtractor } from "./vavoo";
 import { dlhdExtractor } from "./dlhd";
@@ -9,6 +10,7 @@ const extractors: Extractor[] = [
   vixsrcExtractor,
   vavooExtractor,
   dlhdExtractor,
+  freeshotExtractor,
   genericExtractor
 ];
 

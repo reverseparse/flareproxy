@@ -41,9 +41,7 @@ export const vavooExtractor: Extractor = {
     const headers: Record<string, string> = {
       "origin": "https://vavoo.to",
       "referer": "https://vavoo.to/",
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "user-agent": "okhttp/4.11.0",
       "accept": "application/json",
       "content-type": "application/json; charset=utf-8",
       ...context.headers
