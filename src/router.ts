@@ -8,7 +8,7 @@ import { boolParam, getTarget, htmlInfo } from "./compat";
 import type { Env } from "./types";
 import { collectProxyHeaders, validateUpstreamUrl } from "./utils/security";
 
-const VERSION = "1.1.0";
+const VERSION = "1.3.0";
 
 function json(value: unknown, status = 200, extra: HeadersInit = {}): Response {
   return new Response(JSON.stringify(value, null, 2), {
@@ -55,65 +55,58 @@ export async function handle(request: Request, env: Env): Promise<Response> {
     }
 
     if (path === "/proxy/manifest.m3u8" || path === "/proxy/hls/manifest.m3u8" || path === "/proxy/hls") {
-      requireSecret(env); const raw = getTarget(url); if (!raw) return error("Missing url");
-      let target = validateUpstreamUrl(raw, env.ALLOWED_HOSTS ?? ""); const headers = queryHeaders(request,url);
-      let upstream = await fetchUpstream(request,target.toString(),env,headers);
-      let resolvedHeaders = headers;
+      requireSecret(env);
+      const raw=getTarget(url);
+      if(!raw) return error("Missing url");
+      let target=validateUpstreamUrl(raw,env.ALLOWED_HOSTS??"");
+      let headers=queryHeaders(request,url);
+      let resolvedHeaders=headers;
 
-      // EasyProxy-compatible behavior: a non-manifest page such as
-      // dlhd.dad/watch.php?id=850 is an extractor input, not an HLS manifest.
-      // Resolve known specialized hosts before passing content to the HLS rewriter.
-      const contentType = (upstream.headers.get("content-type") || "").toLowerCase();
-      const looksManifest = contentType.includes("mpegurl") || contentType.includes("vnd.apple.mpegurl") ||
-        contentType.includes("dash+xml");
-      if (upstream.ok && !looksManifest) {
-        const sample = await upstream.clone().text();
-        const isHls = /^\s*#EXTM3U(?:\s|$)/i.test(sample);
-        const isMpd = /<MPD[\s>]/i.test(sample);
-        if (!isHls && !isMpd) {
-          const host = target.hostname.toLowerCase();
-          if (/(?:daddylive|dlhd|dlive|vavoo)/i.test(host)) {
-            const result = await extractVideo(target.toString(), {request, env, headers}, null);
-            target = validateUpstreamUrl(result.destination_url, env.ALLOWED_HOSTS ?? "");
-            resolvedHeaders = result.request_headers || headers;
-            upstream = await fetchUpstream(request,target.toString(),env,resolvedHeaders);
-          }
-        }
-      }
-      if (!upstream.ok) {
-        const upstreamStatus = upstream.status;
-        const upstreamType = (upstream.headers.get("content-type") || "").toLowerCase();
-        // Do not expose a successful HTTP 200 HTML error page as an HLS
-        // manifest. This is especially important for CDN/DNS errors such
-        // as Cloudflare 1016 returned by a provider upstream.
-        if (upstreamStatus === 200 && upstreamType.includes("text/html")) {
-          return json({
-            ok: false,
-            error: "Upstream returned HTML instead of an HLS/DASH manifest",
-            code: "UPSTREAM_NOT_MEDIA",
-            upstream_url: target.toString()
-          }, 502);
-        }
-        return passThrough(upstream);
+      // Source-aligned behavior: specialized extractors are invoked BEFORE
+      // fetching the original page. Vavoo/Freeshot URLs are often HTML
+      // resolvers or redirectors, not manifests themselves.
+      const forcedHost=url.searchParams.get("host");
+      const host=(forcedHost||target.hostname).toLowerCase();
+      const specialized=/vavoo|kool\.to|freeshot|popcdn\.day|wideiptv\.top|daddylive|dlhd|dlive|vixsrc/i.test(host);
+
+      if(specialized) {
+        const result=await extractVideo(target.toString(),{request,env,headers},forcedHost);
+        target=validateUpstreamUrl(result.destination_url,env.ALLOWED_HOSTS??"");
+        resolvedHeaders=result.request_headers||headers;
       }
 
-      const text = await upstream.text();
-      const isHls = /^\s*#EXTM3U(?:\s|$)/i.test(text);
-      const isMpd = /<MPD[\s>]/i.test(text);
-      if (!isHls && !isMpd) {
+      let upstream=await fetchUpstream(request,target.toString(),env,resolvedHeaders);
+
+      if(!upstream.ok) {
         return json({
-          ok: false,
-          error: "Upstream response is not an HLS or DASH manifest",
-          code: "UPSTREAM_NOT_MANIFEST",
-          upstream_url: target.toString(),
-          content_type: upstream.headers.get("content-type") || null
-        }, 502);
+          ok:false,
+          error:`Upstream returned HTTP ${upstream.status}`,
+          code:"UPSTREAM_ERROR",
+          upstream_status:upstream.status,
+          upstream_url:target.toString()
+        },502);
       }
-      if (isMpd) {
-        const body = await rewriteMpd(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
+
+      const text=await upstream.text();
+      const isHls=/^\s*#EXTM3U(?:\s|$)/i.test(text);
+      const isMpd=/<MPD[\s>]/i.test(text);
+
+      if(!isHls && !isMpd) {
+        return json({
+          ok:false,
+          error:"Upstream response is not an HLS or DASH manifest",
+          code:"UPSTREAM_NOT_MANIFEST",
+          upstream_url:target.toString(),
+          content_type:upstream.headers.get("content-type")||null
+        },502);
+      }
+
+      if(isMpd) {
+        const body=await rewriteMpd(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
         return new Response(body,{headers:{"content-type":"application/dash+xml","cache-control":"no-store","access-control-allow-origin":"*"}});
       }
-      const body = await rewriteHls(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
+
+      const body=await rewriteHls(text,target.toString(),url.origin,env.PROXY_SECRET,resolvedHeaders);
       return new Response(body,{headers:{"content-type":"application/vnd.apple.mpegurl","cache-control":"no-store","access-control-allow-origin":"*"}});
     }
 
@@ -155,7 +148,18 @@ export async function handle(request: Request, env: Env): Promise<Response> {
       if(!raw)return json({ok:false, error:"Missing url or d", supported_hosts:listExtractors()},400);
 
       const forcedHost=url.searchParams.get("host");
-      const result=await extractVideo(raw,{request,env,headers:queryHeaders(request,url)},forcedHost);
+      let result;
+      try {
+        result=await extractVideo(raw,{request,env,headers:queryHeaders(request,url)},forcedHost);
+      } catch (e) {
+        return json({
+          ok:false,
+          error:e instanceof Error ? e.message : String(e),
+          code:"EXTRACTOR_ERROR",
+          input_url:raw,
+          host:forcedHost||new URL(raw).hostname
+        },502);
+      }
 
       // Extension aliases are compatibility aliases, not a request to lie about
       // the origin format. They always return a proxied/redirected destination.

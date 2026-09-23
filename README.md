@@ -88,3 +88,15 @@ returns an HTML/DNS error page.
 
 V1.1 still deliberately excludes EasyProxy components that require a Python process,
 FFmpeg, Playwright/Chromium, filesystem DVR, or a SOCKS/WARP userspace proxy.
+
+
+## V1.3 — exact current Freeshot input flow + pre-resolution
+
+Freeshot now follows the current extractor supplied with EasyProxy:
+`wideiptv.top/player/<channel>` is the player resolver. `popcdn.day/go.php?stream=...`
+is treated as an input locator only.
+
+The HLS proxy resolves specialized providers before requesting the original URL. This
+is required because Vavoo/Freeshot/DLHD input URLs are not themselves HLS manifests.
+
+Extractor failures are returned as structured HTTP 502 JSON instead of an opaque Worker 500.
